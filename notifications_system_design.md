@@ -540,3 +540,212 @@ Read Replicas
 ```
 
 This architecture minimizes database load, improves response times, and supports large-scale notification delivery efficiently.
+
+# Stage 5 – Reliable and Scalable Bulk Notification Delivery
+
+## Problems with the Current Implementation
+
+Current implementation:
+
+```text
+function notify_all(student_ids, message):
+    for student_id in student_ids:
+        send_email(student_id, message)
+        save_to_db(student_id, message)
+        push_to_app(student_id, message)
+```
+
+### Shortcomings
+
+1. Sequential processing is slow.
+
+   * Sending notifications to 50,000 students one by one can take several minutes.
+
+2. Single point of failure.
+
+   * If `send_email()` fails for one student, the entire process may stop.
+
+3. No retry mechanism.
+
+   * Temporary email service failures can cause permanent notification loss.
+
+4. Poor scalability.
+
+   * One application server cannot efficiently process 50,000 requests sequentially.
+
+5. Tight coupling.
+
+   * Email delivery, database storage, and push notifications are dependent on each other.
+
+6. No fault tolerance.
+
+   * Failures are difficult to recover from.
+
+---
+
+## What if send_email() Failed for 200 Students?
+
+The failed students should not lose notifications.
+
+Recommended approach:
+
+1. Store the notification in the database first.
+2. Track delivery status.
+3. Push failed email requests into a retry queue.
+4. Retry automatically using background workers.
+5. Log all failures for monitoring and auditing.
+
+Example:
+
+```text
+Email Status:
+PENDING
+SENT
+FAILED
+RETRYING
+```
+
+This ensures reliable delivery even if external email services experience outages.
+
+---
+
+## Should Saving to DB and Sending Email Happen Together?
+
+No.
+
+Database writes and email delivery should be decoupled.
+
+Reasons:
+
+* Database operations are usually fast and reliable.
+* Email services are external systems and may fail.
+* Coupling both operations increases response time.
+* A failed email should not prevent notification creation.
+
+Recommended Flow:
+
+```text
+Create Notification
+        |
+        v
+Save Notification To Database
+        |
+        v
+Publish Event To Queue
+        |
+        +----------------+
+        |                |
+        v                v
+ Email Worker      Push Worker
+```
+
+---
+
+## Recommended Architecture
+
+Components:
+
+* Notification Service
+* PostgreSQL Database
+* Message Queue (Kafka/RabbitMQ)
+* Email Workers
+* Push Notification Workers
+* Redis Cache
+
+Architecture:
+
+```text
+HR Clicks Notify All
+          |
+          v
+ Notification Service
+          |
+          v
+ Save Notification To DB
+          |
+          v
+     Message Queue
+      /         \
+     /           \
+Email Worker   Push Worker
+     |             |
+     v             v
+ Email API    WebSocket Server
+```
+
+Benefits:
+
+* High throughput
+* Fault tolerance
+* Independent scaling
+* Retry capability
+* Faster user experience
+
+---
+
+## Revised Pseudocode
+
+```text
+function notify_all(student_ids, message):
+
+    notification_id = save_notification(message)
+
+    for student_id in student_ids:
+
+        create_user_notification(
+            notification_id,
+            student_id,
+            status="PENDING"
+        )
+
+        publish_to_queue(
+            notification_id,
+            student_id,
+            message
+        )
+
+
+worker email_worker():
+
+    while true:
+
+        job = consume_queue()
+
+        try:
+            send_email(job.student_id, job.message)
+            mark_email_status(job.student_id, "SENT")
+
+        except Exception:
+            mark_email_status(job.student_id, "FAILED")
+            retry(job)
+
+
+worker push_worker():
+
+    while true:
+
+        job = consume_queue()
+
+        try:
+            push_to_app(job.student_id, job.message)
+            mark_push_status(job.student_id, "SENT")
+
+        except Exception:
+            mark_push_status(job.student_id, "FAILED")
+            retry(job)
+```
+
+---
+
+## Final Recommendation
+
+Use an asynchronous event-driven architecture with:
+
+* PostgreSQL for persistence
+* Kafka or RabbitMQ for message queuing
+* Redis for caching
+* Background workers for email and push delivery
+* Automatic retry mechanisms
+
+This design can reliably handle notifications for 50,000+ students while maintaining high availability and fault tolerance.
+
