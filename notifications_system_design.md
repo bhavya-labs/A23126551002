@@ -246,11 +246,7 @@ ORDER BY createdAt DESC;
 
 ## Is the Query Accurate?
 
-Yes.
-
-The query correctly retrieves unread notifications for a specific student and sorts them by creation time in descending order.
-
-However, it is not optimal when the notifications table grows to millions of records.
+The query correctly retrieves unread notifications for a specific user and sorts them by creation time in descending order. Functionally, it satisfies the requirement. However, when the notifications table grows to millions of records, performance issues can appear if the database is not properly optimized.
 
 ## Why is it Slow?
 
@@ -495,45 +491,25 @@ LIMIT 20;
 * Reduced memory usage
 * Faster API responses
 
-## Solution 4: Read Replicas
+## Stage 4 – Reducing Database Load
+Problem Statement
 
-Architecture:
+In the current design, every time a student opens the notification page, the application sends a request to the database. This approach works well for small numbers of users but becomes expensive when thousands of students access the system simultaneously.
 
-```text
-Primary Database
-      |
-      +---- Read Replica 1
-      |
-      +---- Read Replica 2
-```
+A typical request flow is:
 
-### Benefits
+Student Opens Page
+        |
+        v
+API Request
+        |
+        v
+Database Query
+        |
+        v
+Response
 
-* Better scalability
-* Reduced load on primary database
-
-### Tradeoffs
-
-* Replication lag
-* Additional infrastructure cost
-
-## Recommended Architecture
-
-```text
-Frontend
-   |
-WebSocket
-   |
-Notification Service
-   |
-Redis Cache
-   |
-Primary Database
-   |
-Read Replicas
-```
-
-This architecture minimizes database load, improves response times, and supports large-scale notification delivery efficiently.
+With approximately 50,000 students, continuously querying the database for the same information can lead to increased response times and unnecessary database load.
 
 # Stage 5 – Reliable and Scalable Bulk Notification Delivery
 
