@@ -12,7 +12,7 @@ The Campus Notification System provides real-time notifications to students rega
 ## Request Headers
 
 ```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJhbGFrdW50YWJoYXZ5YS4yMy5jc2RAYW5pdHMuZWR1LmluIiwiZXhwIjoxNzgyMTk1NDk1LCJpYXQiOjE3ODIxOTQ1OTUsImlzcyI6IkFmZm9yZCBNZWRpY2FsIFRlY2hub2xvZ2llcyBQcml2YXRlIExpbWl0ZWQiLCJqdGkiOiJmZWRkMzE4Yy04YTZlLTQzMzctOTYyNi0zN2ExMjMzYTQyNGYiLCJsb2NhbGUiOiJlbi1JTiIsIm5hbWUiOiJhbGFrdW50YSBiaGF2eWEiLCJzdWIiOiI0YTg3NmNjZC1kMDUwLTQ4NjgtOGI0MS1iN2IzNzMzZDJhNDcifSwiZW1haWwiOiJhbGFrdW50YWJoYXZ5YS4yMy5jc2RAYW5pdHMuZWR1LmluIiwibmFtZSI6ImFsYWt1bnRhIGJoYXZ5YSIsInJvbGxObyI6ImEyMzEyNjU1MTAwMiIsImFjY2Vzc0NvZGUiOiJNVHF4YXIiLCJjbGllbnRJRCI6IjRhODc2Y2NkLWQwNTAtNDg2OC04YjQxLWI3YjM3MzNkMmE0NyIsImNsaWVudFNlY3JldCI6IldjcXpxSmp1UkRkZUZwZ3YifQ.r3brxj2Lku3buAXw_3x3ik4-tGeLFlphddZoan72Raw
+Authorization: Bearer <JWT_TOKEN>
 Content-Type: application/json
 Accept: application/json
 ```
@@ -76,10 +76,26 @@ Response:
 PATCH /api/v1/notifications/{id}/read
 ```
 
+Response:
+
+```json
+{
+  "message": "Notification marked as read"
+}
+```
+
 ### Delete Notification
 
 ```http
 DELETE /api/v1/notifications/{id}
+```
+
+Response:
+
+```json
+{
+  "message": "Notification deleted successfully"
+}
 ```
 
 ## Real-Time Notification Mechanism
@@ -102,16 +118,19 @@ Example Event:
 }
 ```
 
+---
+
 # Stage 2 – Database Design
 
 ## Database Choice
 
-PostgreSQL is chosen because it provides:
+PostgreSQL is selected because it provides:
 
 * ACID compliance
-* Efficient indexing
 * Strong consistency
-* High scalability
+* Efficient indexing
+* High reliability
+* Good scalability for large datasets
 
 ## Database Schema
 
@@ -154,19 +173,19 @@ CREATE TABLE user_notifications (
 ### Create Notification
 
 ```sql
-INSERT INTO notifications(
-notification_id,
-title,
-message,
-category,
-created_at
+INSERT INTO notifications (
+    notification_id,
+    title,
+    message,
+    category,
+    created_at
 )
-VALUES(
-gen_random_uuid(),
-'Tesla Hiring',
-'Tesla Inc. hiring',
-'PLACEMENT',
-NOW()
+VALUES (
+    gen_random_uuid(),
+    'Tesla Hiring',
+    'Tesla Inc. hiring',
+    'PLACEMENT',
+    NOW()
 );
 ```
 
@@ -193,22 +212,35 @@ AND notification_id = $2;
 
 ## Scaling Challenges
 
-* Large notification volume
-* High concurrent users
-* Database growth
+### Challenge 1: Large Notification Volume
 
 Solutions:
 
 * Indexing
 * Pagination
+* Partitioning
+
+### Challenge 2: High Concurrent Users
+
+Solutions:
+
 * Redis caching
-* Database partitioning
+* Read replicas
+* Load balancing
+
+### Challenge 3: Database Growth
+
+Solutions:
+
+* Archiving old notifications
+* Partitioning by date
+* Periodic cleanup jobs
+
+---
 
 # Stage 3 – Query Performance Optimization
 
-## Problem Analysis
-
-Current Query:
+## Current Query
 
 ```sql
 SELECT *
@@ -218,11 +250,42 @@ WHERE studentID = 1042
 ORDER BY createdAt DESC;
 ```
 
-Problems:
+## Is the Query Accurate?
 
-* Full table scans
-* Expensive sorting
-* Slow response for millions of records
+Yes.
+
+The query correctly retrieves unread notifications for a specific student and sorts them by creation time in descending order.
+
+However, it is not optimal when the notifications table grows to millions of records.
+
+## Why is it Slow?
+
+With approximately 5,000,000 notifications:
+
+* Full table scans may occur
+* Sorting becomes expensive
+* `SELECT *` retrieves unnecessary columns
+* No pagination limits result size
+
+## Computational Cost
+
+Without indexes:
+
+```text
+Filtering: O(N)
+Sorting: O(K log K)
+```
+
+Where:
+
+* N = Total notifications
+* K = Matching notifications
+
+With proper indexing:
+
+```text
+Approximately O(log N)
+```
 
 ## Optimization 1: Composite Index
 
@@ -235,7 +298,7 @@ Benefits:
 
 * Faster filtering
 * Faster sorting
-* Better index utilization
+* Better query planning
 
 ## Optimization 2: Pagination
 
@@ -251,7 +314,7 @@ LIMIT 20 OFFSET 0;
 Benefits:
 
 * Reduced memory usage
-* Faster API response
+* Faster response times
 
 ## Optimization 3: Keyset Pagination
 
@@ -272,7 +335,7 @@ Benefits:
 
 ## Optimization 4: Partitioning
 
-Partition notifications by date:
+Example:
 
 ```text
 notifications_2026_jan
@@ -283,7 +346,8 @@ notifications_2026_mar
 Benefits:
 
 * Smaller tables
-* Faster queries
+* Faster searches
+* Easier archival
 
 ## Optimization 5: Redis Cache
 
@@ -312,3 +376,167 @@ WHERE studentID = 1042
 ORDER BY createdAt DESC
 LIMIT 20;
 ```
+
+## Should We Add Indexes on Every Column?
+
+No.
+
+Adding indexes on every column:
+
+* Increases storage requirements
+* Slows INSERT operations
+* Slows UPDATE operations
+* Slows DELETE operations
+* Adds maintenance overhead
+
+Indexes should be created only on:
+
+* Frequently filtered columns
+* Frequently joined columns
+* Frequently sorted columns
+
+Examples:
+
+```text
+studentID
+isRead
+createdAt
+notificationType
+```
+
+## Query: Students Who Received Placement Notifications in Last 7 Days
+
+```sql
+SELECT DISTINCT studentID
+FROM notifications
+WHERE notificationType = 'Placement'
+  AND createdAt >= NOW() - INTERVAL '7 days';
+```
+
+---
+
+# Stage 4 – Reducing Database Load
+
+## Problem Statement
+
+Currently, notifications are fetched from the database on every page load.
+
+Flow:
+
+```text
+Student Opens Page
+↓
+API Request
+↓
+Database Query
+↓
+Response
+```
+
+With 50,000 students this creates heavy database traffic.
+
+## Solution 1: Redis Cache
+
+Store frequently accessed notifications and unread counts in Redis.
+
+Flow:
+
+```text
+Request
+↓
+Redis Cache
+↓
+Database (Only on Cache Miss)
+```
+
+### Benefits
+
+* Sub-millisecond reads
+* Reduced database load
+* Faster page rendering
+
+### Tradeoffs
+
+* Cache invalidation complexity
+* Additional infrastructure
+
+## Solution 2: WebSocket-Based Push Notifications
+
+Flow:
+
+```text
+Notification Created
+↓
+Notification Service
+↓
+WebSocket Server
+↓
+Connected Students
+```
+
+### Benefits
+
+* Real-time delivery
+* Eliminates frequent polling
+* Lower database load
+
+### Tradeoffs
+
+* Persistent connections consume memory
+* More complex infrastructure
+
+## Solution 3: Pagination
+
+```sql
+SELECT *
+FROM notifications
+WHERE studentID = 1042
+ORDER BY createdAt DESC
+LIMIT 20;
+```
+
+### Benefits
+
+* Smaller payloads
+* Reduced memory usage
+* Faster API responses
+
+## Solution 4: Read Replicas
+
+Architecture:
+
+```text
+Primary Database
+      |
+      +---- Read Replica 1
+      |
+      +---- Read Replica 2
+```
+
+### Benefits
+
+* Better scalability
+* Reduced load on primary database
+
+### Tradeoffs
+
+* Replication lag
+* Additional infrastructure cost
+
+## Recommended Architecture
+
+```text
+Frontend
+   |
+WebSocket
+   |
+Notification Service
+   |
+Redis Cache
+   |
+Primary Database
+   |
+Read Replicas
+```
+
+This architecture minimizes database load, improves response times, and supports large-scale notification delivery efficiently.
