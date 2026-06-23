@@ -124,13 +124,7 @@ Example Event:
 
 ## Database Choice
 
-PostgreSQL is selected because it provides:
-
-* ACID compliance
-* Strong consistency
-* Efficient indexing
-* High reliability
-* Good scalability for large datasets
+I selected PostgreSQL for this system because notifications require reliable storage and consistent reads. PostgreSQL supports ACID transactions, powerful indexing features, and can scale efficiently as the number of users and notifications increases.
 
 ## Database Schema
 
